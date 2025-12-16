@@ -1,5 +1,5 @@
 const express = require('express');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const { Octokit } = require('@octokit/rest');
 require('dotenv').config();
 
@@ -30,11 +30,12 @@ let currentNumbers = [];
 let count = 0;
 let a = 0n; // Using BigInt for large Fibonacci numbers
 let b = 1n;
+let isSaving = false; // Flag to prevent concurrent saves
 
 // Broadcast to all connected clients
 function broadcast(data) {
   wss.clients.forEach(client => {
-    if (client.readyState === 1) { // OPEN state
+    if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
     }
   });
@@ -55,10 +56,12 @@ async function loadStateFromGitHub() {
     const match = content.match(/## Latest 45 Digits\n\n```\n([\s\S]*?)\n```/);
     if (match) {
       const numbersText = match[1].trim();
-      currentNumbers = numbersText.split('\n').map(line => {
-        const parts = line.split(': ');
-        return parts[1];
-      });
+      currentNumbers = numbersText.split('\n')
+        .map(line => {
+          const parts = line.split(': ');
+          return parts.length >= 2 ? parts[1] : null;
+        })
+        .filter(num => num !== null);
       
       // Get the last two Fibonacci numbers to continue the sequence
       if (currentNumbers.length >= 2) {
@@ -83,8 +86,9 @@ async function loadStateFromGitHub() {
 async function saveStateToGitHub() {
   try {
     const last45 = currentNumbers.slice(-45);
+    const startPosition = Math.max(1, count - last45.length + 1);
     const numbersText = last45.map((num, idx) => {
-      const position = count - 45 + idx + 1;
+      const position = startPosition + idx;
       return `${position}: ${num}`;
     }).join('\n');
 
@@ -154,9 +158,12 @@ function computeNext() {
   });
 
   // Save every 45 numbers
-  if (count % 45 === 0) {
+  if (count % 45 === 0 && !isSaving) {
     console.log(`Reached ${count} numbers, saving to GitHub...`);
-    saveStateToGitHub();
+    isSaving = true;
+    saveStateToGitHub().finally(() => {
+      isSaving = false;
+    });
   }
 }
 
