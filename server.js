@@ -412,8 +412,7 @@ app.post('/api/manual-save', async (req, res) => {
     try {
         await saveStateToGitHub();
         lastManualSaveTime = now;
-        // Reset automatic timer to avoid double saving shortly after
-        lastCommitTime = now;
+        // Auto-save timer continues independently - no reset
         res.json({ success: true, message: 'Progress saved manually' });
     } catch (error) {
         console.error('Manual save failed:', error);
