@@ -308,6 +308,63 @@
         .save-indicator.show {
             opacity: 1;
         }
+
+        /* UI Layer */
+        #ui-layer {
+            position: relative;
+            z-index: 10;
+            margin-top: -20px;
+        }
+
+        #score, #high-score, #level {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        #manual-save-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background: #333;
+            color: white;
+            border: 1px solid #666;
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        #manual-save-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+        }
+
+        #start-screen h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        #start-screen button {
+            padding: 10px 20px;
+            font-size: 1.2em;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #start-screen button:hover {
+            background: #0fa76a;
+        }
     </style>
 </head>
 <body>
@@ -411,6 +468,17 @@
         ✓ Saved to GitHub
     </div>
 
+    <div id="ui-layer">
+        <div id="score">Score: 0</div>
+        <div id="high-score">High Score: 0</div>
+        <div id="level">Level: 1</div>
+        <button id="manual-save-btn" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; background: #333; color: white; border: 1px solid #666; cursor: pointer; z-index: 1000;">Save</button>
+        <div id="start-screen">
+            <h1>Infinity Runner</h1>
+            <button id="start-btn">Start</button>
+        </div>
+    </div>
+
     <script>
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
@@ -427,6 +495,8 @@
         const cpuEl = document.getElementById('cpu');
         const serverStartEl = document.getElementById('serverStart');
         const saveIndicatorEl = document.getElementById('saveIndicator');
+        const levelElement = document.getElementById('level');
+        const manualSaveBtn = document.getElementById('manual-save-btn');
 
         let count = 0;
         let history = [];
@@ -485,6 +555,38 @@
                 showSaveIndicator();
             }
         };
+
+        manualSaveBtn.addEventListener('click', async () => {
+            const pin = prompt("Enter Owner PIN to save:");
+            if (!pin) return;
+
+            manualSaveBtn.disabled = true;
+            manualSaveBtn.textContent = "Saving...";
+
+            try {
+                const response = await fetch('/api/manual-save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ pin })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('Saved successfully!');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (err) {
+                alert('Failed to connect to server');
+                console.error(err);
+            } finally {
+                manualSaveBtn.disabled = false;
+                manualSaveBtn.textContent = "Save";
+            }
+        });
 
         function updateDisplay(number, position) {
             currentNumberEl.textContent = number;

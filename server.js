@@ -8,6 +8,7 @@ const port = process.env.PORT || 3000;
 
 // Serve static files
 app.use(express.static('public'));
+app.use(express.json()); // For parsing application/json
 
 const server = app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
@@ -24,6 +25,14 @@ const octokit = new Octokit({
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'Sirco-web';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'infinity-runner-data';
 const README_PATH = 'README.md';
+const REPO_OWNER = process.env.GITHUB_OWNER;
+const REPO_NAME = process.env.GITHUB_REPO;
+const OWNER_PIN = process.env.OWNER_PIN;
+
+if (!GITHUB_TOKEN || !REPO_OWNER || !REPO_NAME) {
+  console.error('GitHub token, owner, and repo must be configured');
+  process.exit(1);
+}
 
 // State management
 let currentNumbers = [];
@@ -34,6 +43,10 @@ let isSaving = false; // Flag to track if save is in progress
 let pendingSave = false; // Flag to track if a save is queued
 let serverStartTime = new Date();
 let lastSaveTime = new Date();
+let lastCommitTime = 0;
+let lastManualSaveTime = 0;
+const COMMIT_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const MANUAL_SAVE_COOLDOWN = 60 * 1000; // 1 minute
 
 // Server specs (for display on frontend)
 const SERVER_SPECS = {
@@ -256,6 +269,44 @@ process.on('SIGTERM', async () => {
   console.log('\nShutting down gracefully...');
   await saveStateToGitHub();
   process.exit(0);
+});
+
+// API endpoints
+app.get('/api/progress', (req, res) => {
+    res.json(gameState);
+});
+
+app.post('/api/manual-save', async (req, res) => {
+    const { pin } = req.body;
+
+    if (!OWNER_PIN) {
+        return res.status(500).json({ error: 'Owner PIN not configured on server' });
+    }
+
+    if (pin !== OWNER_PIN) {
+        return res.status(403).json({ error: 'Invalid PIN' });
+    }
+
+    const now = Date.now();
+    if (now - lastManualSaveTime < MANUAL_SAVE_COOLDOWN) {
+        const remaining = Math.ceil((MANUAL_SAVE_COOLDOWN - (now - lastManualSaveTime)) / 1000);
+        return res.status(429).json({ error: `Please wait ${remaining} seconds before saving again` });
+    }
+
+    try {
+        await saveProgressToGitHub();
+        lastManualSaveTime = now;
+        // Reset automatic timer to avoid double saving shortly after
+        lastCommitTime = now;
+        res.json({ success: true, message: 'Progress saved manually' });
+    } catch (error) {
+        console.error('Manual save failed:', error);
+        res.status(500).json({ error: 'Failed to save progress' });
+    }
+});
+
+app.post('/api/progress', (req, res) => {
+  // ...existing code...
 });
 
 // Start the computation
