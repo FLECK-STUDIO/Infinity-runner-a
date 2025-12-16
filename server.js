@@ -6,6 +6,16 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const REPO_OWNER = process.env.GITHUB_OWNER;
+const REPO_NAME = process.env.GITHUB_REPO;
+const OWNER_PIN = process.env.OWNER_PIN;
+
+if (!GITHUB_TOKEN || !REPO_OWNER || !REPO_NAME) {
+    console.error('Error: GITHUB_TOKEN, GITHUB_OWNER, and GITHUB_REPO must be defined in .env');
+    process.exit(1);
+}
+
 // Serve static files
 app.use(express.static('public'));
 app.use(express.json()); // For parsing application/json
