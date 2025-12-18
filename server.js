@@ -510,7 +510,7 @@ async function saveAllNumbersToGitHub(saveCount, numbersToSave) {
     }
   }
 
-  // Update index
+  // Update index with retry logic for SHA conflicts
   indexData.totalNumbers += numbersToSave.length;
   indexData.lastChunkCount = newChunks[newChunks.length - 1]?.length || 0;
   indexData.lastUpdated = new Date().toISOString();
@@ -518,22 +518,55 @@ async function saveAllNumbersToGitHub(saveCount, numbersToSave) {
   
   const indexContent = JSON.stringify(indexData, null, 2);
   
-  await octokit.repos.createOrUpdateFileContents({
-    owner: REPO_OWNER,
-    repo: REPO_NAME,
-    path: ALL_NUMBERS_PATH,
-    message: `Add ${numbersToSave.length} numbers: now ${indexData.totalNumbers} total in ${indexData.chunks.length} chunks`,
-    content: Buffer.from(indexContent).toString('base64'),
-    ...(indexSha && { sha: indexSha }),
-  });
-
-  console.log(`Saved: ${indexData.totalNumbers} total numbers in ${indexData.chunks.length} chunks`);
+  // Retry logic for index update
+  let indexRetries = 0;
+  const MAX_INDEX_RETRIES = 3;
+  
+  while (indexRetries < MAX_INDEX_RETRIES) {
+    try {
+      // Re-fetch SHA if this is a retry
+      if (indexRetries > 0) {
+        try {
+          const { data } = await octokit.repos.getContent({
+            owner: REPO_OWNER,
+            repo: REPO_NAME,
+            path: ALL_NUMBERS_PATH,
+          });
+          indexSha = data.sha;
+          console.log(`Refetched index SHA: ${indexSha.substring(0, 7)}`);
+        } catch (e) {
+          indexSha = null;
+        }
+      }
+      
+      await octokit.repos.createOrUpdateFileContents({
+        owner: REPO_OWNER,
+        repo: REPO_NAME,
+        path: ALL_NUMBERS_PATH,
+        message: `Add ${numbersToSave.length} numbers: now ${indexData.totalNumbers} total in ${indexData.chunks.length} chunks`,
+        content: Buffer.from(indexContent).toString('base64'),
+        ...(indexSha && { sha: indexSha }),
+      });
+      
+      console.log(`Saved: ${indexData.totalNumbers} total numbers in ${indexData.chunks.length} chunks`);
+      break; // Success, exit retry loop
+    } catch (error) {
+      if (error.status === 409 && indexRetries < MAX_INDEX_RETRIES - 1) {
+        indexRetries++;
+        console.log(`Index SHA conflict, retrying (${indexRetries}/${MAX_INDEX_RETRIES})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        throw error;
+      }
+    }
+  }
   
   // Numbers already cleared when we took ownership in queueAllNumbersSave
 }
 
-// Save a new chunk file
-async function saveChunk(chunkIndex, numbers) {
+// Save a new chunk file with retry logic for SHA conflicts
+async function saveChunk(chunkIndex, numbers, retryCount = 0) {
+  const MAX_RETRIES = 3;
   const chunkPath = `chunks/chunk_${chunkIndex}.json`;
   const chunkData = {
     chunkIndex,
@@ -575,6 +608,12 @@ async function saveChunk(chunkIndex, numbers) {
     });
     console.log(`Saved chunk ${chunkIndex}: ${numbers.length} numbers`);
   } catch (error) {
+    // Handle SHA conflict (409) with retry
+    if (error.status === 409 && retryCount < MAX_RETRIES) {
+      console.log(`SHA conflict on chunk ${chunkIndex}, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      return saveChunk(chunkIndex, numbers, retryCount + 1);
+    }
     console.error(`Error saving chunk ${chunkIndex}: ${error.status} - ${error.message}`);
     throw error;
   }
