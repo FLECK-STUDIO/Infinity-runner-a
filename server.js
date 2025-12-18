@@ -47,8 +47,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB GitHub limit
 
 // State management
 let currentNumbers = [];
-let allNumbers = []; // Store ALL computed numbers
-let allNumbersNeedsFetch = false; // Flag to indicate we need to fetch existing data before saving
+let newNumbers = []; // Only store NEW numbers since last save (not ALL numbers)
 let count = 0;
 let a = 0n; // Using BigInt for large Fibonacci numbers
 let b = 1n;
@@ -56,6 +55,7 @@ let isSaving = false; // Flag to track if save is in progress
 let pendingSave = false; // Flag to track if a save is queued
 let saveQueue = []; // Queue for save operations
 let isProcessingQueue = false;
+const MAX_NEW_NUMBERS_BUFFER = 500; // Limit buffer to prevent memory issues
 let serverStartTime = new Date();
 let lastSaveTime = new Date();
 let autoSaveStartTime = new Date(); // Tracks when current auto-save cycle started
@@ -187,9 +187,9 @@ async function loadChunkedData(indexData) {
     // Only keep last 45 numbers for display
     currentNumbers = chunkData.numbers.slice(-45);
     
-    // Keep allNumbers empty - we don't need all of them in memory
+    // Keep newNumbers empty - we don't need previous numbers in memory
     // We'll only save NEW numbers going forward
-    allNumbers = [];
+    newNumbers = [];
     
     console.log(`Loaded last chunk (${chunkData.numbers.length} numbers)`);
     console.log(`Resuming from position ${count}`);
@@ -228,16 +228,17 @@ async function loadStateFromGitHub() {
       }
       console.log('Chunk loading failed, falling back to README...');
     } else if (parsed.numbers && parsed.numbers.length > 0) {
-      // Old single-file format
-      allNumbers = parsed.numbers;
-      count = parsed.count || allNumbers.length;
+      // Old single-file format - DON'T load all into memory, just get last 2
+      const loadedNumbers = parsed.numbers;
+      count = parsed.count || loadedNumbers.length;
     
-      if (allNumbers.length >= 2) {
-        const lastTwo = allNumbers.slice(-2);
+      if (loadedNumbers.length >= 2) {
+        const lastTwo = loadedNumbers.slice(-2);
         a = BigInt(lastTwo[0]);
         b = BigInt(lastTwo[1]);
-        currentNumbers = allNumbers.slice(-45);
-        console.log(`Loaded ${allNumbers.length} numbers from all.json (old format)`);
+        currentNumbers = loadedNumbers.slice(-45);
+        newNumbers = []; // Start fresh, don't keep old numbers in memory
+        console.log(`Loaded state from all.json (old format, ${loadedNumbers.length} numbers)`);
         console.log(`Resuming from position ${count}`);
         return;
       }
@@ -282,14 +283,10 @@ async function loadStateFromGitHub() {
         a = BigInt(lastTwo[0]);
         b = BigInt(lastTwo[1]);
         
-        // Since we don't have all.json, regenerate all Fibonacci numbers from scratch
-        // This ensures we never lose early numbers (0, 1, 1, 2, 3, 5...)
-        console.log(`Regenerating ${count} Fibonacci numbers from scratch...`);
-        allNumbers = regenerateFibonacciSequence(count);
-        currentNumbers = allNumbers.slice(-45);
-        allNumbersNeedsFetch = false;
-        console.log(`Regenerated ${allNumbers.length} numbers`);
-        console.log(`Resuming from position ${count}`);
+        // DON'T regenerate all numbers - this causes OOM!
+        // Just continue from where we left off
+        newNumbers = []; // Start fresh
+        console.log(`Resuming from position ${count} (using last 2 numbers from README)`);
       }
     }
   } catch (error) {
@@ -301,21 +298,8 @@ async function loadStateFromGitHub() {
   }
 }
 
-// Regenerate Fibonacci sequence from the beginning
-function regenerateFibonacciSequence(targetCount) {
-  const numbers = ['0', '1']; // Start with F(0)=0, F(1)=1
-  let a = 0n;
-  let b = 1n;
-  
-  for (let i = 2; i < targetCount; i++) {
-    const next = a + b;
-    a = b;
-    b = next;
-    numbers.push(next.toString());
-  }
-  
-  return numbers;
-}
+// Regenerate Fibonacci sequence from the beginning (REMOVED - causes OOM)
+// We no longer regenerate all numbers, just continue from last known state
 
 // Save state to GitHub with queuing mechanism
 async function saveStateToGitHub() {
@@ -423,8 +407,17 @@ This is an automated computation running a Fibonacci sequence. The server comput
 
 // Queue all.json save operation
 function queueAllNumbersSave(saveCount) {
-  const numbersSnapshot = [...allNumbers];
-  saveQueue.push({ count: saveCount, numbers: numbersSnapshot });
+  // Only queue if we have new numbers to save
+  if (newNumbers.length === 0) {
+    console.log('No new numbers to save');
+    return;
+  }
+  
+  // Take ownership of current buffer and reset it immediately
+  const numbersToSave = newNumbers;
+  newNumbers = []; // Reset buffer immediately to prevent memory growth
+  
+  saveQueue.push({ count: saveCount, numbers: numbersToSave });
   processQueue();
 }
 
@@ -453,9 +446,9 @@ async function processQueue() {
 }
 
 // Save all numbers using chunked files to avoid GitHub size limits
-// Now optimized: allNumbers only contains NEW numbers since startup
+// Now optimized: newNumbers only contains NEW numbers since last save
 // We append these to the last chunk or create new chunks as needed
-async function saveAllNumbersToGitHub(saveCount, newNumbers) {
+async function saveAllNumbersToGitHub(saveCount, numbersToSave) {
   // First, get the current index to know what chunks exist
   let indexData = { chunks: [], totalNumbers: 0, lastChunkCount: 0 };
   let indexSha;
@@ -483,15 +476,15 @@ async function saveAllNumbersToGitHub(saveCount, newNumbers) {
   }
 
   // If no new numbers to save, skip
-  if (!newNumbers || newNumbers.length === 0) {
+  if (!numbersToSave || numbersToSave.length === 0) {
     console.log('No new numbers to save');
     return;
   }
 
-  console.log(`Saving ${newNumbers.length} new numbers`);
+  console.log(`Saving ${numbersToSave.length} new numbers`);
 
   // Split new numbers by size
-  const newChunks = splitNumbersBySize(newNumbers);
+  const newChunks = splitNumbersBySize(numbersToSave);
   let startPosition = indexData.totalNumbers + 1;
   
   // Save each new chunk
@@ -518,7 +511,7 @@ async function saveAllNumbersToGitHub(saveCount, newNumbers) {
   }
 
   // Update index
-  indexData.totalNumbers += newNumbers.length;
+  indexData.totalNumbers += numbersToSave.length;
   indexData.lastChunkCount = newChunks[newChunks.length - 1]?.length || 0;
   indexData.lastUpdated = new Date().toISOString();
   indexData.computedCount = saveCount;
@@ -529,15 +522,14 @@ async function saveAllNumbersToGitHub(saveCount, newNumbers) {
     owner: REPO_OWNER,
     repo: REPO_NAME,
     path: ALL_NUMBERS_PATH,
-    message: `Add ${newNumbers.length} numbers: now ${indexData.totalNumbers} total in ${indexData.chunks.length} chunks`,
+    message: `Add ${numbersToSave.length} numbers: now ${indexData.totalNumbers} total in ${indexData.chunks.length} chunks`,
     content: Buffer.from(indexContent).toString('base64'),
     ...(indexSha && { sha: indexSha }),
   });
 
   console.log(`Saved: ${indexData.totalNumbers} total numbers in ${indexData.chunks.length} chunks`);
   
-  // Clear saved numbers from memory
-  allNumbers = [];
+  // Numbers already cleared when we took ownership in queueAllNumbersSave
 }
 
 // Save a new chunk file
@@ -598,13 +590,26 @@ function computeNext() {
   count++;
   const numStr = next.toString();
   currentNumbers.push(numStr);
-  allNumbers.push(numStr); // Add to complete history
   
-  // Broadcast to all clients
+  // Only keep last 100 in currentNumbers to limit memory
+  if (currentNumbers.length > 100) {
+    currentNumbers = currentNumbers.slice(-50);
+  }
+  
+  // Add to new numbers buffer for saving
+  newNumbers.push(numStr);
+  
+  // Emergency save if buffer gets too large (prevents OOM)
+  if (newNumbers.length >= MAX_NEW_NUMBERS_BUFFER) {
+    console.log(`Buffer limit reached (${MAX_NEW_NUMBERS_BUFFER}), triggering early save...`);
+    saveStateToGitHub();
+  }
+  
+  // Broadcast to all clients (only send position and digit count to save bandwidth)
   broadcast({
     type: 'number',
-    number: numStr,
-    position: count
+    position: count,
+    digits: numStr.length
   });
 }
 
@@ -612,12 +617,12 @@ function computeNext() {
 wss.on('connection', (ws) => {
   console.log('Client connected');
   
-  // Send current state to new client
+  // Send current state to new client (only send digit count, not full numbers)
+  const currentNum = b.toString();
   ws.send(JSON.stringify({
     type: 'init',
     count: count,
-    currentNumber: b.toString(),
-    last45: currentNumbers.slice(-45),
+    digits: currentNum.length,
     serverSpecs: SERVER_SPECS,
     serverStartTime: serverStartTime.toISOString(),
     lastSaveTime: lastSaveTime.toISOString(),
@@ -651,12 +656,12 @@ async function startComputation() {
   await loadStateFromGitHub();
   
   // If starting fresh, add the initial Fibonacci numbers (0, 1) to the history
-  if (count === 0 && allNumbers.length === 0) {
+  if (count === 0 && newNumbers.length === 0) {
     console.log('Starting fresh - adding initial Fibonacci numbers (0, 1)');
     // Add the starting numbers to the history
     // Position 1 = 0, Position 2 = 1 (these are a and b before any computation)
-    allNumbers.push('0');  // F(0) = 0
-    allNumbers.push('1');  // F(1) = 1
+    newNumbers.push('0');  // F(0) = 0
+    newNumbers.push('1');  // F(1) = 1
     currentNumbers.push('0');
     currentNumbers.push('1');
     count = 2;  // We already have 2 numbers

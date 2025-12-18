@@ -126,13 +126,7 @@
             border-color: #10b981;
         }
 
-        .live-section {
-            transition: opacity 0.3s ease, max-height 0.3s ease;
-        }
 
-        .live-section.hidden {
-            display: none;
-        }
 
         /* Settings Modal */
         .settings-modal {
@@ -393,58 +387,6 @@
             color: #ffd700;
         }
 
-        /* Current Number Display */
-        .current-number-display {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 25px;
-            border-radius: 10px;
-            margin-top: 20px;
-            position: relative;
-            height: 200px;
-            overflow-y: auto;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .current-number {
-            font-size: 1.1em;
-            word-break: break-all;
-            line-height: 1.6;
-            font-family: 'Monaco', 'Courier New', monospace;
-            animation: pulse 0.3s ease-in-out;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.01); }
-            100% { transform: scale(1); }
-        }
-
-        .number-info {
-            font-size: 0.9em;
-            opacity: 0.7;
-            margin-top: 15px;
-            text-align: center;
-        }
-
-        /* Scrollbar for current number display */
-        .current-number-display::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .current-number-display::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-        }
-
-        .current-number-display::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-        }
-
-        .current-number-display::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
         /* How It Works Section */
         .info-text {
             font-size: 1.05em;
@@ -496,67 +438,9 @@
             font-weight: bold;
         }
 
-        /* History Section */
-        .history-container {
-            height: 350px;
-            overflow-y: scroll;
-            background: rgba(0, 0, 0, 0.2);
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .history-item {
-            padding: 10px;
-            margin-bottom: 8px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 5px;
-            word-break: break-all;
-            font-size: 0.9em;
-            font-family: 'Monaco', 'Courier New', monospace;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateX(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        .history-item .position {
-            color: #ffd700;
-            font-weight: bold;
-            margin-right: 10px;
-        }
-
         /* Full Width Section */
         .full-width {
             grid-column: 1 / -1;
-        }
-
-        /* Scrollbar Styling */
-        .history-container::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .history-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-        }
-
-        .history-container::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-        }
-
-        .history-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
         }
 
         /* Footer */
@@ -657,7 +541,6 @@
             <div class="header-controls">
                 <div class="connection-status disconnected" id="status">Connecting...</div>
                 <button class="save-btn" id="manual-save-btn">💾 Save</button>
-                <button class="toggle-btn active" id="toggle-live">👁 Live Numbers</button>
                 <button class="toggle-btn" id="settings-btn">⚙️ Settings</button>
             </div>
         </div>
@@ -682,19 +565,6 @@
         </div>
 
         <div class="main-grid">
-            <div class="card live-section" id="liveSection">
-                <h2>📊 Live Computation</h2>
-                <div class="current-number-display">
-                    <div class="current-number" id="currentNumber">Initializing...</div>
-                    <div class="number-info" id="numberInfo">Connecting to server...</div>
-                </div>
-                
-                <h3>Recent Numbers</h3>
-                <div class="history-container" id="history">
-                    <p style="opacity: 0.5; text-align: center;">Waiting for data...</p>
-                </div>
-            </div>
-
             <div class="card">
                 <h2>🧮 How It Works</h2>
                 <div class="info-text">
@@ -815,43 +685,18 @@
         const digitsEl = document.getElementById('digits');
         const uptimeEl = document.getElementById('uptime');
         const nextSaveEl = document.getElementById('nextSave');
-        const currentNumberEl = document.getElementById('currentNumber');
-        const numberInfoEl = document.getElementById('numberInfo');
-        const historyEl = document.getElementById('history');
         const platformEl = document.getElementById('platform');
         const ramEl = document.getElementById('ram');
         const cpuEl = document.getElementById('cpu');
         const serverStartEl = document.getElementById('serverStart');
         const saveIndicatorEl = document.getElementById('saveIndicator');
         const manualSaveBtn = document.getElementById('manual-save-btn');
-        const toggleLiveBtn = document.getElementById('toggle-live');
-        const liveSection = document.getElementById('liveSection');
 
         let count = 0;
-        let history = [];
         let serverStartTime = null;
         let lastSaveTime = null;
         let autoSaveStartTime = null; // Tracks when current auto-save cycle started
         let uptimeInterval = null;
-        let liveVisible = true;
-
-        // Toggle live numbers section
-        toggleLiveBtn.addEventListener('click', () => {
-            liveVisible = !liveVisible;
-            liveSection.classList.toggle('hidden', !liveVisible);
-            toggleLiveBtn.classList.toggle('active', liveVisible);
-            toggleLiveBtn.textContent = liveVisible ? '👁 Live Numbers' : '👁 Show Live';
-            localStorage.setItem('liveVisible', liveVisible);
-        });
-
-        // Restore toggle state from localStorage
-        const savedLiveVisible = localStorage.getItem('liveVisible');
-        if (savedLiveVisible === 'false') {
-            liveVisible = false;
-            liveSection.classList.add('hidden');
-            toggleLiveBtn.classList.remove('active');
-            toggleLiveBtn.textContent = '👁 Show Live';
-        }
 
         // WebSocket connection with reconnection
         function connectWebSocket() {
@@ -881,7 +726,6 @@
             
                 if (data.type === 'init') {
                     count = data.count;
-                    history = data.last45 || [];
                     serverStartTime = new Date(data.serverStartTime);
                     lastSaveTime = new Date(data.lastSaveTime);
                     autoSaveStartTime = new Date(data.autoSaveStartTime);
@@ -895,25 +739,17 @@
                 
                     serverStartEl.textContent = formatDateTime(serverStartTime);
                 
-                    updateDisplay(data.currentNumber, count);
-                    renderHistory();
+                    // Update stats display
+                    countEl.textContent = count.toLocaleString();
+                    if (data.digits) {
+                        digitsEl.textContent = data.digits.toLocaleString();
+                    }
                     startUptimeCounter();
                 } else if (data.type === 'number') {
-                    // Only process live numbers if live mode is enabled
-                    if (!liveVisible) {
-                        // Just update count for stats display, skip heavy rendering
-                        count = data.position;
-                        countEl.textContent = count.toLocaleString();
-                        digitsEl.textContent = data.number.length.toLocaleString();
-                        return;
-                    }
+                    // Just update count and digits for stats display
                     count = data.position;
-                    history.push(data.number);
-                    if (history.length > 45) {
-                        history.shift();
-                    }
-                    updateDisplay(data.number, count);
-                    renderHistory();
+                    countEl.textContent = count.toLocaleString();
+                    digitsEl.textContent = data.digits.toLocaleString();
                 } else if (data.type === 'save') {
                     lastSaveTime = new Date(data.lastSaveTime);
                     // Only update auto-save timer if this was an auto-save (has autoSaveStartTime)
@@ -969,36 +805,6 @@
                 manualSaveBtn.textContent = "Save";
             }
         });
-
-        function updateDisplay(number, position) {
-            currentNumberEl.textContent = number;
-            currentNumberEl.style.animation = 'none';
-            setTimeout(() => {
-                currentNumberEl.style.animation = 'pulse 0.3s ease-in-out';
-            }, 10);
-            
-            countEl.textContent = position.toLocaleString();
-            digitsEl.textContent = number.length.toLocaleString();
-            
-            numberInfoEl.textContent = `Position #${position.toLocaleString()} • ${number.length.toLocaleString()} digits`;
-        }
-
-        function renderHistory() {
-            if (history.length === 0) return;
-            
-            historyEl.innerHTML = '';
-            const startPos = count - history.length + 1;
-            
-            history.forEach((num, idx) => {
-                const div = document.createElement('div');
-                div.className = 'history-item';
-                div.innerHTML = `<span class="position">#${(startPos + idx).toLocaleString()}</span>${num}`;
-                historyEl.appendChild(div);
-            });
-            
-            // Auto-scroll to bottom
-            historyEl.scrollTop = historyEl.scrollHeight;
-        }
 
         function startUptimeCounter() {
             if (uptimeInterval) clearInterval(uptimeInterval);
