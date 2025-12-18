@@ -28,9 +28,15 @@ const server = app.listen(port, () => {
 // WebSocket setup
 const wss = new WebSocketServer({ server });
 
-// GitHub setup
+// GitHub setup - disable request logging
 const octokit = new Octokit({
-  auth: GITHUB_TOKEN
+  auth: GITHUB_TOKEN,
+  log: {
+    debug: () => {},
+    info: () => {},
+    warn: console.warn,
+    error: console.error
+  }
 });
 
 const README_PATH = 'README.md';
@@ -668,16 +674,26 @@ async function startComputation() {
   }, 100);
 }
 
-// Graceful shutdown
+// Graceful shutdown with error handling
 process.on('SIGINT', async () => {
   console.log('\nShutting down gracefully...');
-  await saveStateToGitHub();
+  try {
+    await saveStateToGitHub();
+    console.log('Shutdown save completed');
+  } catch (error) {
+    console.log('Shutdown save failed (this is normal on Render):', error.message);
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('\nShutting down gracefully...');
-  await saveStateToGitHub();
+  try {
+    await saveStateToGitHub();
+    console.log('Shutdown save completed');
+  } catch (error) {
+    console.log('Shutdown save failed (this is normal on Render):', error.message);
+  }
   process.exit(0);
 });
 
